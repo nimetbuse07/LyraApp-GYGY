@@ -1,30 +1,32 @@
 package com.nimetatila.lyraapp.ui.home
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,16 +43,21 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nimetatila.lyraapp.data.home.PlaylistForYou
+import com.nimetatila.lyraapp.data.home.QuickPick
+import com.nimetatila.lyraapp.data.home.RecentlyPlayed
 import com.nimetatila.lyraapp.ui.icons.LyraIcons
 import com.nimetatila.lyraapp.ui.theme.LyraAppTheme
 
 /**
  * Home akışının durumlu (stateful) giriş noktası.
+ *
+ * [HomeViewModel]'i Hilt'ten alır, durumu yaşam döngüsüne duyarlı şekilde toplar ve
+ * tek seferlik [HomeEffect]'leri tüketir. Yükleme hatasında snackbar üzerinden
+ * "Tekrar dene" aksiyonu [HomeIntent.Retry] niyetine köprülenir.
  */
 @Composable
 fun HomeRoute(
-    onNavigateToDetails: (String) -> Unit,
-    onNavigateToProfile: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
@@ -60,9 +67,15 @@ fun HomeRoute(
     LaunchedEffect(Unit) {
         viewModel.effect.collect { effect ->
             when (effect) {
-                is HomeEffect.NavigateToDetails -> onNavigateToDetails(effect.itemId)
-                HomeEffect.NavigateToProfile -> onNavigateToProfile()
-                is HomeEffect.ShowNotification -> snackbarHostState.showSnackbar(effect.message)
+                is HomeEffect.ShowError -> {
+                    val result = snackbarHostState.showSnackbar(
+                        message = effect.message,
+                        actionLabel = "Tekrar dene",
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        viewModel.onIntent(HomeIntent.Retry)
+                    }
+                }
             }
         }
     }
@@ -76,7 +89,11 @@ fun HomeRoute(
 }
 
 /**
- * Ana Sayfa ekranı. Tamamen durumsuzdur (stateless).
+ * Ana sayfa ("Ne dinlemek istersin?") ekranı.
+ *
+ * Tamamen durumsuzdur (stateless): durumu [state] üzerinden alır, kullanıcı etkileşimlerini
+ * [onIntent] ile yukarı yayımlar. Alt çubuk boşluğu dış Scaffold'dan (LyraNavHost) gelir;
+ * burada yalnızca durum çubuğu (status bar) boşluğu yönetilir.
  */
 @Composable
 fun HomeScreen(
@@ -89,331 +106,297 @@ fun HomeScreen(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        bottomBar = {
-            state.currentPlayingTrack?.let { track ->
-                MiniPlayer(
-                    track = track,
-                    isPlaying = state.isPlaying,
-                    isFavorite = state.isFavorite,
-                    onTogglePlay = { onIntent(HomeIntent.TogglePlayPause) },
-                    onToggleFavorite = { onIntent(HomeIntent.ToggleFavorite) },
-                )
-            }
-        },
     ) { innerPadding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding),
-            contentPadding = PaddingValues(bottom = 16.dp),
-        ) {
-            item {
-                HomeHeader(
-                    userName = state.userName,
-                    onProfileClick = { onIntent(HomeIntent.ProfileClicked) },
-                )
+        if (state.isLoading && state.quickPicks.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator()
             }
-
-            item {
-                Text(
-                    text = "Ne dinlemek istersin?",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
-                QuickPicksGrid(
-                    items = state.quickPicks,
-                    onIntent = onIntent,
-                )
-            }
-
-            item {
-                SectionHeader(
-                    title = "Son çalınanlar",
-                    onSeeAllClick = { onIntent(HomeIntent.SeeAllRecentlyPlayedClicked) },
-                )
-                HorizontalTrackList(
-                    items = state.recentlyPlayed,
-                    onIntent = onIntent,
-                )
-            }
-
-            item {
-                SectionHeader(
-                    title = "Senin için çalma listeleri",
-                    onSeeAllClick = {},
-                )
-                HorizontalTrackList(
-                    items = state.customPlaylists,
-                    onIntent = onIntent,
-                )
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .statusBarsPadding(),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                item { HomeHeader(greeting = state.greeting, userInitials = state.userInitials) }
+                item { QuickPickGrid(quickPicks = state.quickPicks) }
+                item { SectionHeader(title = "Son çalınanlar", trailingText = "Tümü") }
+                item { RecentlyPlayedRow(items = state.recentlyPlayed) }
+                item { SectionHeader(title = "Senin için çalma listeleri") }
+                item { PlaylistsForYouRow(items = state.playlistsForYou) }
             }
         }
     }
 }
 
+/** Selamlama + başlık ile tema ikonu ve kullanıcı avatarını içeren üst bölüm. */
 @Composable
 private fun HomeHeader(
-    userName: String,
-    onProfileClick: () -> Unit,
+    greeting: String,
+    userInitials: String,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+            .padding(start = 20.dp, end = 20.dp, top = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = "İyi akşamlar",
+                text = greeting,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            Spacer(Modifier.height(4.dp))
             Text(
-                text = userName.ifBlank { "Misafir" },
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
+                text = "Ne dinlemek istersin?",
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
             )
         }
-
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(MaterialTheme.colorScheme.primaryContainer)
-                .clickable(onClick = onProfileClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = userName.take(2).uppercase().ifBlank { "LY" },
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-            )
-        }
+        Icon(
+            imageVector = LyraIcons.LightMode,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(24.dp),
+        )
+        Spacer(Modifier.width(16.dp))
+        UserAvatar(initials = userInitials)
     }
 }
 
 @Composable
-private fun QuickPicksGrid(
-    items: List<PlayableItem>,
-    onIntent: (HomeIntent) -> Unit,
-) {
-    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-        items.chunked(2).forEach { rowItems ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
+private fun UserAvatar(initials: String) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = initials,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+        )
+    }
+}
+
+/** Hızlı seçimlerin 2 sütunlu sabit grid'i (6 öğe; dikey scroll LazyColumn'a aittir). */
+@Composable
+private fun QuickPickGrid(quickPicks: List<QuickPick>) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        quickPicks.chunked(2).forEach { rowItems ->
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 rowItems.forEach { item ->
-                    QuickPickCard(
-                        item = item,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onIntent(HomeIntent.QuickPickClicked(item.id)) },
-                    )
+                    QuickPickCard(item = item, modifier = Modifier.weight(1f))
                 }
-                if (rowItems.size == 1) Spacer(Modifier.weight(1f))
+                if (rowItems.size == 1) {
+                    Spacer(Modifier.weight(1f))
+                }
             }
-            Spacer(Modifier.height(12.dp))
         }
     }
 }
 
 @Composable
 private fun QuickPickCard(
-    item: PlayableItem,
-    onClick: () -> Unit,
+    item: QuickPick,
     modifier: Modifier = Modifier,
 ) {
-    val gradients = remember {
-        listOf(
-            listOf(Color(0xFF8E2DE2), Color(0xFF4A00E0)),
-            listOf(Color(0xFFED213A), Color(0xFF93291E)),
-            listOf(Color(0xFF11998e), Color(0xFF38ef7d)),
-        )
-    }
-    val currentGradient = gradients[item.gradientIndex % gradients.size]
-
     Row(
         modifier = modifier
             .height(56.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Brush.horizontalGradient(currentGradient))
-            .clickable(onClick = onClick),
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Spacer(Modifier.width(16.dp))
+        Artwork(
+            startColor = item.artworkStartColor,
+            endColor = item.artworkEndColor,
+            modifier = Modifier
+                .width(56.dp)
+                .fillMaxHeight(),
+        )
         Text(
             text = item.title,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.SemiBold,
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 10.dp),
         )
     }
 }
 
+/** Bölüm başlığı; [trailingText] verilirse sağda vurgu rengiyle gösterilir (örn. "Tümü"). */
 @Composable
 private fun SectionHeader(
     title: String,
-    onSeeAllClick: () -> Unit,
+    trailingText: String? = null,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+            .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = title,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
         )
-        Text(
-            text = "Tümü",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.clickable(onClick = onSeeAllClick),
-        )
+        if (trailingText != null) {
+            Text(
+                text = trailingText,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
     }
 }
 
+/** "Son çalınanlar" yatay scrollable kart listesi. */
 @Composable
-private fun HorizontalTrackList(
-    items: List<PlayableItem>,
-    onIntent: (HomeIntent) -> Unit,
-) {
+private fun RecentlyPlayedRow(items: List<RecentlyPlayed>) {
     LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         items(items, key = { it.id }) { item ->
-            Column(
-                modifier = Modifier
-                    .width(140.dp)
-                    .clickable { onIntent(HomeIntent.TrackClicked(item.id)) },
-            ) {
-                Box(
+            Column(modifier = Modifier.width(150.dp)) {
+                Artwork(
+                    startColor = item.artworkStartColor,
+                    endColor = item.artworkEndColor,
                     modifier = Modifier
-                        .size(140.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Brush.linearGradient(listOf(Color(0xFF434343), Color(0xFF000000)))),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = LyraIcons.Waveform,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(40.dp),
-                    )
-                }
+                        .size(150.dp)
+                        .clip(RoundedCornerShape(16.dp)),
+                )
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = item.title,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                item.subtitle?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.secondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MiniPlayer(
-    track: PlayableItem,
-    isPlaying: Boolean,
-    isFavorite: Boolean,
-    onTogglePlay: () -> Unit,
-    onToggleFavorite: () -> Unit,
-) {
-    Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, bottom = 12.dp)
-            .height(64.dp),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 4.dp,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = LyraIcons.Waveform,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = track.title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
+                    text = item.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                )
-                track.subtitle?.let {
-                    Text(
-                        text = it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            }
-            IconButton(onClick = onToggleFavorite) {
-                Icon(
-                    imageVector = if (isFavorite) LyraIcons.Favorite else LyraIcons.FavoriteBorder,
-                    contentDescription = "Favori",
-                    tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                )
-            }
-            IconButton(onClick = onTogglePlay) {
-                Icon(
-                    imageVector = if (isPlaying) LyraIcons.Pause else LyraIcons.PlayArrow,
-                    contentDescription = "Oynat/Durdur",
                 )
             }
         }
     }
 }
 
-@Preview(name = "Home - Light", showBackground = true)
+/** "Senin için çalma listeleri" yatay scrollable büyük kart listesi. */
+@Composable
+private fun PlaylistsForYouRow(items: List<PlaylistForYou>) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 20.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        items(items, key = { it.id }) { item ->
+            Column(modifier = Modifier.width(170.dp)) {
+                Artwork(
+                    startColor = item.artworkStartColor,
+                    endColor = item.artworkEndColor,
+                    modifier = Modifier
+                        .size(170.dp)
+                        .clip(RoundedCornerShape(20.dp)),
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = item.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Kapak görseli yer tutucusu: modeldeki ARGB renk çiftinden köşegen gradyan + hafif
+ * radyal parlama çizer. Gerçek API görsel URL'si sağladığında bu composable görsel
+ * yükleyiciyle değiştirilir.
+ */
+@Composable
+private fun Artwork(
+    startColor: Long,
+    endColor: Long,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .background(Brush.linearGradient(listOf(Color(startColor), Color(endColor))))
+            .background(
+                Brush.radialGradient(
+                    listOf(Color.White.copy(alpha = 0.16f), Color.Transparent),
+                ),
+            ),
+    )
+}
+
+private val previewState = HomeUiState(
+    greeting = "İyi akşamlar",
+    userInitials = "ZK",
+    quickPicks = listOf(
+        QuickPick("qp-1", "Gece Sürüşü", 0xFF8B6FB8, 0xFF4A3D6B),
+        QuickPick("qp-2", "Sabah Kahvesi", 0xFF7C83D9, 0xFF3E4486),
+        QuickPick("qp-3", "Neon Sokaklar", 0xFFD98E4A, 0xFF8A5526),
+        QuickPick("qp-4", "Odaklan", 0xFF4AC2A8, 0xFF1F6E5C),
+        QuickPick("qp-5", "Derin Mavi", 0xFF6FBF5A, 0xFF356B2A),
+        QuickPick("qp-6", "Yaz Anıları", 0xFF5AAFC9, 0xFF2A5F73),
+    ),
+    recentlyPlayed = listOf(
+        RecentlyPlayed("rp-1", "Neon Sokaklar", "Şehir Işıkları", 0xFFD98E4A, 0xFF8A5526),
+        RecentlyPlayed("rp-2", "Derin Mavi", "Okyanus", 0xFF6FBF5A, 0xFF356B2A),
+        RecentlyPlayed("rp-3", "Yıldız Tozu", "Polaris", 0xFF3D5A80, 0xFF1B2A45),
+    ),
+    playlistsForYou = listOf(
+        PlaylistForYou("pl-1", "Haftalık Keşif", 0xFF9B7FC4, 0xFF5A4480),
+        PlaylistForYou("pl-2", "Sakin Akşamlar", 0xFF6B5FB8, 0xFF3A3270),
+        PlaylistForYou("pl-3", "Enerji Ver", 0xFF3FAE9C, 0xFF1E5D52),
+    ),
+)
+
+@Preview(name = "Home - Dark", showBackground = true, showSystemUi = true)
+@Composable
+private fun HomeScreenDarkPreview() {
+    LyraAppTheme(darkTheme = true) {
+        HomeScreen(state = previewState, onIntent = {})
+    }
+}
+
+@Preview(name = "Home - Light", showBackground = true, showSystemUi = true)
 @Composable
 private fun HomeScreenLightPreview() {
     LyraAppTheme(darkTheme = false) {
-        HomeScreen(
-            state = HomeUiState(
-                userName = "Nimet Atila",
-                quickPicks = listOf(PlayableItem("1", "Gece Sürüşü")),
-            ),
-            onIntent = {},
-        )
+        HomeScreen(state = previewState, onIntent = {})
     }
 }

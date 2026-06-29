@@ -1,7 +1,17 @@
-package com.nimetatila.lyraapp.ui.auth.navigation
+package com.nimetatila.lyraapp.ui.navigation
 
-sealed class LyraDestination(val route: String) {
-    data object Login : LyraDestination("login")
-    data object Register : LyraDestination("register")
-    data object Home : LyraDestination("home")
+/**
+ * Uygulamadaki navigasyon hedeflerinin tek doğruluk kaynağı.
+ *
+ * Her hedef benzersiz bir [route] string'iyle temsil edilir; [LyraNavHost] bu route'lar
+ * üzerinden composable'ları bağlar. Yeni bir ekran eklendiğinde buraya bir hedef eklenir.
+ */
+enum class LyraDestination(val route: String) {
+    Login("login"),
+    Register("register"),
+    Home("home"),
+    Search("search"),
+    Library("library"),
+    Favorites("favorites"),
+    Profile("profile"),
 }

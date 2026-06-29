@@ -441,3 +441,9 @@ private fun RegisterScreenDarkPreview() {
         )
     }
 }
+
+// Bireysel
+// 13.06.2026 - 12:00
+// Projeye MVI mimarisi kurulacak.
+// Register-Login-Ana Sayfa
+// Fake repository ile bu 3 sayfa çalışıyor (statesel) hale getirilecek.

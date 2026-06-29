@@ -2,6 +2,7 @@ package com.nimetatila.lyraapp.ui.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nimetatila.lyraapp.data.home.HomeRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -11,69 +12,65 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.Calendar
 import javax.inject.Inject
 
+/**
+ * Home ekranının ViewModel'i (bkz. mvi-viewmodel-rules.md).
+ *
+ * Besleme, ekran açılışında bir kez yüklenir; başarısızlıkta [HomeIntent.Retry] ile
+ * yeniden denenir. Selamlama metni günün saatinden türetilir (durum sahibi UI değil,
+ * ViewModel'dir).
+ */
 @HiltViewModel
-class HomeViewModel @Inject constructor() : ViewModel() {
+class HomeViewModel @Inject constructor(
+    private val homeRepository: HomeRepository,
+) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(HomeUiState())
+    private val _uiState = MutableStateFlow(HomeUiState(greeting = greetingForNow()))
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
     private val _effect = Channel<HomeEffect>(Channel.BUFFERED)
     val effect: Flow<HomeEffect> = _effect.receiveAsFlow()
 
     init {
-        loadMockContent()
+        loadFeed()
     }
 
     fun onIntent(intent: HomeIntent) {
         when (intent) {
-            is HomeIntent.QuickPickClicked -> {
-                _uiState.update { current ->
-                    val selected = current.quickPicks.find { it.id == intent.itemId }
-                    current.copy(currentPlayingTrack = selected, isPlaying = true)
-                }
-            }
-            is HomeIntent.TrackClicked -> {
-                _uiState.update { current ->
-                    val selected = current.recentlyPlayed.find { it.id == intent.itemId }
-                        ?: current.customPlaylists.find { it.id == intent.itemId }
-                    current.copy(currentPlayingTrack = selected, isPlaying = true)
-                }
-            }
-            HomeIntent.TogglePlayPause -> _uiState.update { it.copy(isPlaying = !it.isPlaying) }
-            HomeIntent.ToggleFavorite -> _uiState.update { it.copy(isFavorite = !it.isFavorite) }
-            HomeIntent.ProfileClicked -> viewModelScope.launch { _effect.send(HomeEffect.NavigateToProfile) }
-            HomeIntent.SeeAllRecentlyPlayedClicked -> {
-                viewModelScope.launch { _effect.send(HomeEffect.ShowNotification("Çok yakında eklenecek")) }
-            }
+            is HomeIntent.Retry -> loadFeed()
         }
     }
 
-    private fun loadMockContent() {
-        _uiState.update {
-            HomeUiState(
-                userName = "Nazlı Yazıcı",
-                quickPicks = listOf(
-                    PlayableItem("1", "Gece Sürüşü", gradientIndex = 0),
-                    PlayableItem("2", "Sabah Kahvesi", gradientIndex = 1),
-                    PlayableItem("3", "Neon Sokaklar", gradientIndex = 2),
-                    PlayableItem("4", "Odaklan", gradientIndex = 0),
-                    PlayableItem("5", "Derin Mavi", gradientIndex = 1),
-                    PlayableItem("6", "Yaz Anıları", gradientIndex = 2)
-                ),
-                recentlyPlayed = listOf(
-                    PlayableItem("3", "Neon Sokaklar", "Şehir Işıkları"),
-                    PlayableItem("5", "Derin Mavi", "Okyanus"),
-                    PlayableItem("7", "Yıldız Tozu", "Polaris")
-                ),
-                customPlaylists = listOf(
-                    PlayableItem("8", "Akustik Yolculuk", "Sakin Ritmler"),
-                    PlayableItem("9", "Yeraltı Beats", "Lo-Fi Evreni")
-                ),
-                currentPlayingTrack = PlayableItem("3", "Neon Sokaklar", "Şehir Işıkları"),
-                isPlaying = false
-            )
+    private fun loadFeed() {
+        if (_uiState.value.isLoading) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            val result = homeRepository.getHomeFeed()
+            _uiState.update { it.copy(isLoading = false) }
+            result
+                .onSuccess { feed ->
+                    _uiState.update {
+                        it.copy(
+                            userInitials = feed.userInitials,
+                            quickPicks = feed.quickPicks,
+                            recentlyPlayed = feed.recentlyPlayed,
+                            playlistsForYou = feed.playlistsForYou,
+                        )
+                    }
+                }
+                .onFailure { error ->
+                    _effect.send(HomeEffect.ShowError(error.message ?: "Ana sayfa yüklenemedi."))
+                }
         }
     }
+
+    // java.time yerine Calendar: minSdk 24'te desugaring gerektirmez.
+    private fun greetingForNow(): String =
+        when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
+            in 5..11 -> "Günaydın"
+            in 12..17 -> "İyi günler"
+            else -> "İyi akşamlar"
+        }
 }
