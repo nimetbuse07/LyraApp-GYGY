@@ -12,9 +12,41 @@ import androidx.compose.ui.unit.dp
  * Material Icons bağımlılığı eklemeden, ekranların ihtiyaç duyduğu glyph'leri
  * 24x24 viewport'lu [ImageVector] olarak tanımlar. Path'in dolgu rengi önemsizdir;
  * `Icon(...)` composable'ı `tint` ile üzerine yazar. Bu yüzden tüm path'ler
- * [Color.Black] ile doldurulur ve renk daima çağrı tarafında temadan okunur.
+ * [Color.Black] ile doldukur ve renk daima çağrı tarafında temadan okunur.
  */
 object LyraIcons {
+
+    /** Oynat butonu ikonu (Material PlayArrow). */
+    val PlayArrow: ImageVector by lazy {
+        lyraIcon(
+            name = "PlayArrow",
+            pathData = "M8,5v14l11,-7z",
+        )
+    }
+
+    /** Duraklat butonu ikonu (Material Pause). */
+    val Pause: ImageVector by lazy {
+        lyraIcon(
+            name = "Pause",
+            pathData = "M6,19h4V5H6v14zM14,5v14h4V5h-4z",
+        )
+    }
+
+    /** Favorilere eklenmemiş (boş kalp) ikonu (Material FavoriteBorder). */
+    val FavoriteBorder: ImageVector by lazy {
+        lyraIcon(
+            name = "FavoriteBorder",
+            pathData = "M16.5,3c-1.74,0 -3.41,0.81 -4.5,2.09C10.91,3.81 9.24,3 7.5,3C4.42,3 2,5.42 2,8.5c0,3.78 3.4,6.86 8.55,11.54L12,21.35l1.45,-1.32C18.6,15.36 22,12.28 22,8.5C22,5.42 19.58,3 16.5,3zM12.1,18.55l-0.1,0.1l-0.1,-0.1C7.14,14.24 4,11.39 4,8.5c0,-1.74 1.26,-3 3,-3c1.52,0 2.98,0.98 3.5,2.34h1.99c0.52,-1.36 1.98,-2.34 3.5,-2.34c1.74,0 3,1.26 3,3c0,2.89 -3.14,5.74 -8.1,10.05z",
+        )
+    }
+
+    /** Favorilere eklenmiş (dolu kalp) ikonu (Material Favorite). */
+    val Favorite: ImageVector by lazy {
+        lyraIcon(
+            name = "Favorite",
+            pathData = "M12,21.35l-1.45,-1.32C5.4,15.36 2,12.28 2,8.5C2,5.42 4.42,3 7.5,3c1.74,0 3.41,0.81 4.5,2.09C13.09,3.81 14.76,3 16.5,3C19.58,3 22,5.42 22,8.5c0,3.78 -3.4,6.86 -8.55,11.54L12,21.35z",
+        )
+    }
 
     /** Marka logosu: ekolayzer/dalga formu çubukları (Material GraphicEq). */
     val Waveform: ImageVector by lazy {
