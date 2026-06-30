@@ -1,7 +1,7 @@
 package com.nimetatila.lyraapp.di
 
+import com.nimetatila.lyraapp.data.home.DefaultHomeRepository
 import com.nimetatila.lyraapp.data.home.HomeRepository
-import com.nimetatila.lyraapp.data.home.MockHomeRepository
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -11,8 +11,9 @@ import javax.inject.Singleton
 /**
  * Home feature'ının repository bağlamaları.
  *
- * Backend hazır olmadığından [HomeRepository], MOCK implementasyona ([MockHomeRepository])
- * bağlanır. Gerçek API geldiğinde yalnızca bu bağlamanın hedefi değiştirilir.
+ * [HomeRepository], "Şarkılar" bölümünü gerçek API'dan çeken [DefaultHomeRepository]'ye bağlanır
+ * (diğer bölümler hâlâ statiktir). Tüm bölümler API'ya taşındığında yalnızca bu bağlamanın
+ * hedefi değişir.
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -20,5 +21,5 @@ abstract class HomeModule {
 
     @Binds
     @Singleton
-    abstract fun bindHomeRepository(impl: MockHomeRepository): HomeRepository
+    abstract fun bindHomeRepository(impl: DefaultHomeRepository): HomeRepository
 }

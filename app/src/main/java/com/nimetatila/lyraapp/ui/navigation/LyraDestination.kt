@@ -9,4 +9,16 @@ package com.nimetatila.lyraapp.ui.navigation
 enum class LyraDestination(val route: String) {
     Login("login"),
     Register("register"),
+    Home("home"),
+    Search("search"),
+    Library("library"),
+    Favorites("favorites"),
+    Profile("profile"),
+
+    /**
+     * Oynatıcı ekranı. Üst düzey sekme değildir (alt çubuk gösterilmez); şarkı kimliği yol
+     * parametresi, başlık/sanatçı ise opsiyonel query parametresi olarak taşınır.
+     * Tam route deseni ve gerçek yol üretimi için bkz. [LyraNavHost].
+     */
+    Player("player"),
 }
